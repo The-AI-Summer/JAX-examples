@@ -167,6 +167,21 @@ LOG_EVERY = 50
 MAX_STEPS = 10 ** 6
 
 
+def embeddings(data: Mapping[str, jnp.ndarray], vocab_size: int) :
+    tokens = data['obs']
+    input_mask = jnp.greater(tokens, 0)
+    seq_length = tokens.shape[1]
+
+    # Embed the input tokens and positions.
+    embed_init = hk.initializers.TruncatedNormal(stddev=0.02)
+    token_embedding_map = hk.Embed(vocab_size, d_model, w_init=embed_init)
+    token_embs = token_embedding_map(tokens)
+    positional_embeddings = hk.get_parameter(
+        'pos_embs', [seq_length, d_model], init=embed_init)
+    input_embeddings = token_embs + positional_embeddings
+    return input_embeddings, input_mask
+
+
 def build_forward_fn(vocab_size: int, d_model: int, num_heads: int,
                      num_layers: int, dropout_rate: float):
     """Create the model's forward pass."""
@@ -174,17 +189,7 @@ def build_forward_fn(vocab_size: int, d_model: int, num_heads: int,
     def forward_fn(data: Mapping[str, jnp.ndarray],
                    is_training: bool = True) -> jnp.ndarray:
         """Forward pass."""
-        tokens = data['obs']
-        input_mask = jnp.greater(tokens, 0)
-        seq_length = tokens.shape[1]
-
-        # Embed the input tokens and positions.
-        embed_init = hk.initializers.TruncatedNormal(stddev=0.02)
-        token_embedding_map = hk.Embed(vocab_size, d_model, w_init=embed_init)
-        token_embs = token_embedding_map(tokens)
-        positional_embeddings = hk.get_parameter(
-            'pos_embs', [seq_length, d_model], init=embed_init)
-        input_embeddings = token_embs + positional_embeddings
+        input_embeddings, input_mask = embeddings(data, vocab_size)
 
         # Run the transformer over the inputs.
         transformer = Transformer(
@@ -267,7 +272,7 @@ class GradientUpdater:
 def main():
     # Create the dataset.
     train_dataset, vocab_size = load(batch_size,
-                                             sequence_length)
+                                     sequence_length)
     # Set up the model, loss, and updater.
     forward_fn = build_forward_fn(vocab_size, d_model, num_heads,
                                   num_layers, dropout_rate)
@@ -294,11 +299,11 @@ def main():
         # We use JAX runahead to mask data preprocessing and JAX dispatch overheads.
         # Using values from state/metrics too often will block the runahead and can
         # cause these overheads to become more prominent.
-        if step % LOG_EVERY == 0:
-            steps_per_sec = LOG_EVERY / (time.time() - prev_time)
-            prev_time = time.time()
-            metrics.update({'steps_per_sec': steps_per_sec})
-            logging.info({k: float(v) for k, v in metrics.items()})
+        # if step % LOG_EVERY == 0:
+        #     steps_per_sec = LOG_EVERY / (time.time() - prev_time)
+        #     prev_time = time.time()
+        #     metrics.update({'steps_per_sec': steps_per_sec})
+        #     logging.info({k: float(v) for k, v in metrics.items()})
 
 
 main()
